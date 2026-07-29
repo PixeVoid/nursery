@@ -819,6 +819,7 @@ const waLink = (name, kind) =>
     `Hello Rakesh Nursery, I saw the ${kind} "${name}" on your website. Could you share the price and availability?`);
 
 const state = {tab:'plants', filter:'all', q:'', list:[], index:0};
+let lastRenderedTab = null;
 
 /* ---- tab bar + header nav ---- */
 function buildTabs(){
@@ -1008,12 +1009,22 @@ function renderBody(keepScroll){
   // short. Doing this after innerHTML lands mid-layout and undershoots.
   if (!keepScroll) alignToTabs();
 
+  // The chip strip is rebuilt with #main, which would reset its horizontal
+  // scroll — tap a chip on the far right and it jumps back to "All". Carry the
+  // position over, but only within the same tab (a new tab has new chips).
+  const oldChips = document.querySelector('.chips');
+  const chipsLeft = oldChips && lastRenderedTab === state.tab ? oldChips.scrollLeft : 0;
+
   const r = state.tab === 'plants'      ? renderPlants()
           : state.tab === 'pots'        ? renderPots()
           : state.tab === 'accessories' ? renderAccessories()
           :                               renderServices();
   $('main').innerHTML = r.html;
   state.list = r.list;
+  lastRenderedTab = state.tab;
+
+  const newChips = document.querySelector('.chips');
+  if (newChips && chipsLeft) newChips.scrollLeft = chipsLeft;
 
   const input = $('searchInput');
   if (input){
@@ -1038,6 +1049,7 @@ function renderBody(keepScroll){
    ===================================================================== */
 const modal = $('modal');
 let lastFocus = null;
+let selfClosing = false;   // true while our own history.back() is in flight
 
 const specRow = (icon, label, value) =>
   value ? `<div class="spec"><dt>${icon} ${label}</dt><dd>${esc(value)}</dd></div>` : '';
@@ -1103,8 +1115,10 @@ function closeModal(fromPop){
   if (!modal.classList.contains('open')) return;
   modal.classList.remove('open');
   document.body.classList.remove('no-scroll');
-  if (!fromPop && history.state && history.state.modal) history.back();
-  if (lastFocus) lastFocus.focus();
+  if (!fromPop && history.state && history.state.modal){ selfClosing = true; history.back(); }
+  // preventScroll: refocusing the card that opened the modal would otherwise
+  // scroll it back into view, moving the page out from under the reader
+  if (lastFocus) lastFocus.focus({preventScroll:true});
 }
 
 function step(dir){
@@ -1146,6 +1160,9 @@ function routeFromHash(){
 }
 
 window.addEventListener('popstate', () => {
+  // closeModal() already tore the modal down and then called history.back();
+  // without this the entry below would look like a tab change and re-render.
+  if (selfClosing){ selfClosing = false; return; }
   if (modal.classList.contains('open')) closeModal(true);
   else routeFromHash();
 });
@@ -1153,6 +1170,11 @@ window.addEventListener('hashchange', () => {
   if (modal.classList.contains('open')) closeModal();
   routeFromHash();
 });
+
+// Opening a modal pushes a history entry and closing it calls history.back().
+// With the default 'auto', the browser restores that entry's saved scroll
+// position on the way back, dropping the reader somewhere else in the grid.
+if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 
 buildTabs();
 $('heroBg').style.backgroundImage = `url('${full('hero-showroom')}')`;
