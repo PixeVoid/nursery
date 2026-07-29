@@ -837,8 +837,12 @@ function syncTabUI(){
     b.setAttribute('aria-selected', String(b.dataset.tab === state.tab)));
   document.querySelectorAll('#headerNav button').forEach(b =>
     b.setAttribute('aria-current', String(b.dataset.tab === state.tab)));
-  const active = document.querySelector('#tabbar .tab[aria-selected="true"]');
-  if (active) active.scrollIntoView({block:'nearest', inline:'center', behavior:'smooth'});
+  // scroll the strip itself rather than scrollIntoView, which also drags the page
+  const bar = $('tabbar'), active = bar.querySelector('.tab[aria-selected="true"]');
+  if (active) bar.scrollTo({
+    left: active.offsetLeft - (bar.clientWidth - active.offsetWidth) / 2,
+    behavior:'smooth'
+  });
 }
 
 /* ---- cards ---- */
@@ -984,7 +988,26 @@ function renderServices(){
     </div>`};
 }
 
-function renderBody(keepFocus){
+/* Switching a tab or filter must not fling the page back to the very top.
+   If the tab bar has already scrolled up under the header, re-pin it there so
+   the new list starts at its first row. If we are still up in the hero, leave
+   the scroll position completely alone. */
+function alignToTabs(){
+  const main    = $('main');
+  const headerH = document.querySelector('.site-header').offsetHeight;
+  const barH    = document.querySelector('.tabbar-outer').offsetHeight;
+  // #main is static, so its rect is unaffected by the sticky chrome above it
+  const anchor  = main.getBoundingClientRect().top + window.scrollY - headerH - barH;
+  // 'instant', not 'auto' — 'auto' would inherit scroll-behavior:smooth from CSS
+  if (window.scrollY > anchor + 1) window.scrollTo({top:anchor, behavior:'instant'});
+}
+
+function renderBody(keepScroll){
+  // Scroll BEFORE swapping content: the outgoing list is still in the DOM, so
+  // the document is tall enough for the target and the browser cannot clamp it
+  // short. Doing this after innerHTML lands mid-layout and undershoots.
+  if (!keepScroll) alignToTabs();
+
   const r = state.tab === 'plants'      ? renderPlants()
           : state.tab === 'pots'        ? renderPots()
           : state.tab === 'accessories' ? renderAccessories()
@@ -998,7 +1021,8 @@ function renderBody(keepFocus){
       state.q = e.target.value;
       renderBody(true);
       const el = $('searchInput');
-      if (el){ el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+      // preventScroll: a plain focus() yanks the page to reveal the input
+      if (el){ el.focus({preventScroll:true}); el.setSelectionRange(el.value.length, el.value.length); }
     });
   }
   document.querySelectorAll('[data-filter]').forEach(b =>
@@ -1007,7 +1031,6 @@ function renderBody(keepFocus){
     c.addEventListener('click', () => openModal(Number(c.dataset.i))));
 
   syncTabUI();
-  if (!keepFocus) window.scrollTo({top:0, behavior:'auto'});
 }
 
 /* =====================================================================
